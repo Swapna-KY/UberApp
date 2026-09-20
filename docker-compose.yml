@@ -1,0 +1,114 @@
+version: '3.8'
+
+services:
+
+  # ─────────────────────────────────────────
+  # REDIS — Driver Location Storage
+  # ─────────────────────────────────────────
+  redis:
+    image: redis:latest
+    container_name: redis-geo
+    ports:
+      - "6379:6379"
+    networks:
+      - rideshare-network
+
+  # ─────────────────────────────────────────
+  # MYSQL — Ride Data Storage
+  # ─────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: mysql-rideshare
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: ride_db
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - rideshare-network
+
+  # ─────────────────────────────────────────
+  # ZOOKEEPER — Required by Kafka
+  # ─────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - rideshare-network
+
+  # ─────────────────────────────────────────
+  # KAFKA — Event Streaming
+  # ─────────────────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    networks:
+      - rideshare-network
+
+  location-service:
+    build: ./location-service
+    container_name: location-service
+    ports:
+      - "8082:8082"
+    environment:
+      - SPRING_DATA_REDIS_HOST=redis
+    depends_on:
+      - redis
+    networks:
+      - rideshare-network
+
+  ride-service:
+    build: ./ride-service
+    container_name: ride-service
+    ports:
+      - "8083:8083"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/ride_db
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=root
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    depends_on:
+      - mysql
+      - kafka
+    networks:
+      - rideshare-network
+
+  matching-service:
+    build: ./matching-service
+    container_name: matching-service
+    ports:
+      - "8084:8084"
+    environment:
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - LOCATION_SERVICE_URL=http://location-service:8082
+    depends_on:
+      - kafka
+      - location-service
+    networks:
+      - rideshare-network
+
+volumes:
+  mysql-data:
+
+networks:
+  rideshare-network:
+    driver: bridge

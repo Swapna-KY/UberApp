@@ -1,0 +1,18 @@
+# Build output
+target/
+*.class
+
+# JDK bundled by mistake
+jdk-*.zip
+jdk-*/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
